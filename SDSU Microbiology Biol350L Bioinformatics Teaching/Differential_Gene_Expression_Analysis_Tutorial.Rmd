@@ -1,0 +1,167 @@
+---
+title: "Differential Gene Expression Analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Biol 350L: Microbiology Lab
+### Spring 2021
+#### TA: Dimitri Krutkin
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+```{r}
+#Clears the global environment (for those who might use R)
+rm(list = ls())
+```
+
+## Reading raw expression data into R:
+Reads raw count data (in the form of comma-seperated values - CSV) and assigns the data in the file to the varriable "raw_rna_seq_data"
+```{r}
+#read.csv() is a function
+raw_rna_seq_data = read.csv("dataset1.csv")
+```
+
+"Calling" the variable dumps its data to the screen 
+
+Large datasets would take up all of your screenspace: un-commenting the variable below and running the code chunk would print the entire data matrix to the screen:
+```{r}
+#printing the entire matrix would take up far too much space
+#raw_rna_seq_data 
+```
+
+Some shorter ways to look at your data:
+```{r}
+#functions head() and tail() can show the top and bottom of the data:
+head(raw_rna_seq_data)
+tail(raw_rna_seq_data)
+```
+
+The structure of "raw_rna_seq_data" above is referred to as "data frame" in R - it can be thought of as an excel spreadsheet 
+
+In an excel spreadsheet, gene counts for each experimental group (control vs. treated) are associated with their respective gene, which usually have their unique identifiers in a column on the left-most side 
+
+In R, the row names are stored in a seperate category from data columns - the column "gene_name" above should be removed and each entry from the column should be assigned to the row names seperate category
+
+```{r}
+#Extracts all of the gene names and assigns them to a variable called "row_names"
+row_names = raw_rna_seq_data$Gene_name
+
+head(row_names)
+```
+
+```{r}
+#Creates a new data frame, only including experimental groups and their respective counts
+final_count_data = raw_rna_seq_data[2:5]
+
+#Assigns the values from the first columnn of the raw count matrix to the row names of the final count matrix
+row.names(final_count_data) = row_names
+```
+
+
+```{r}
+colnames(raw_rna_seq_data[2:5])
+```
+
+DESeq2 needs a minimum amount of additional information regarding columns/biological replicates:
+```{r}
+#There are two 2 conditions (Control and Treatment) with 4 samples, at 2 biological replicates each
+#Biological replicates belong to the same condition
+condition_info = data.frame(Condition = c("Control", "Control", "Treatment", "Treatment"))
+condition_info
+```
+
+```{r}
+#Assigns the column names of the count matrix as the row names for each sample
+row.names(condition_info) = colnames(raw_rna_seq_data[2:5])
+condition_info
+```
+
+```{r}
+#Checks to see that "Condition" in "condition_info" only has two "levels" (Control and Treated)
+levels(condition_info$Condition)
+#Be default, R will not recognize that you are trying to cluster the biological replicates together. 
+#The entries in "Condition" within condition_info are "characters" - they are just a string of charcters with no symolic meaning
+```
+
+
+```{r}
+#as.factor() function groups the entries together into "levels" (Control and treatment)
+condition_info$Condition = as.factor(condition_info$Condition)
+condition_info
+
+#Re-checks to make sure there are only two unique levels within "Condition"
+levels(condition_info$Condition)
+```
+
+## Creating the DESeq data object 
+```{r}
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install("DESeq2")
+```
+
+
+```{r, message=FALSE}
+#Every package needs to be loaded manually into R with the library() function 
+library(DESeq2)
+```
+
+```{r}
+deseq_dataset = DESeqDataSetFromMatrix(countData = final_count_data,
+                                       colData = condition_info,
+                                       design = ~Condition)
+deseq_dataset
+```
+
+# Conducting differential expression analysis, quality control, and retrieving results 
+The standard steps for a differential gene expression analysis protocol have been wrapped into a single function, "DESeq"
+```{r}
+diff_exp_analysis = DESeq(deseq_dataset)
+```
+
+Principal component plots are a way of visualizing mass data between different groups; it is a common way of visualizing data and seeing how close biological replicates are to each other
+```{r}
+#To be able to effectively compare between-samples, raw count matrix must first be transformed
+#vst() function imposes a variance-stablizing transformation on the DESeq object (diff_exp_analysis)
+diff_exp_analysis_variance_stabalized = vst(diff_exp_analysis)
+
+#plotPCA() function takes transformed DESeq object as input
+plotPCA(diff_exp_analysis_variance_stabalized, intgroup = "Condition")
+```
+
+
+Results of the differential expression analysis are retrieved with the "results" function:
+```{r}
+diff_exp_results = results(diff_exp_analysis)
+diff_exp_results
+```
+
+```{r}
+#Dpylr is a library for common data transformations, it might need to be installed before using
+library(dplyr, quietly = TRUE)
+
+#subset() takes the results of the differential expression analysis and removes all entries with adjusted p value < 0.05
+diff_exp_results_subset = subset(diff_exp_results, padj < 0.05)
+diff_exp_results_subset
+```
+
+```{r}
+#Orders the subset results table by descending log2foldchange value 
+diff_exp_results_subset_ordered = diff_exp_results_subset[order(-diff_exp_results_subset$log2FoldChange), , drop = FALSE]
+diff_exp_results_subset_ordered
+```
+
+```{r}
+#Writes the final, statistically significant results to a comma-seperated value spreadsheet
+#row.names = TRUE ensures the gene names are kept instead of removed
+#The final table will be saved as what you title it; the table will be saved in the same location as the .rmd document 
+write.csv(diff_exp_results_subset_ordered, "diff_exp_results_subset_ordered.csv", row.names = TRUE)
+```
+
